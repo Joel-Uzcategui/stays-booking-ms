@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BookingStatus {
+  held
+  confirmed
+  cancelled
+  expired
+  failed
+  refunded
+}
+
+model RoomTypeReplica {
+  id           String   @id @db.Uuid
+  hotelId      String   @map("hotel_id") @db.Uuid
+  name         String
+  capacity     Int
+  priceCents   Int      @map("price_cents")
+  currency     String   @db.Char(3)
+  defaultUnits Int      @map("default_units")
+  active       Boolean  @default(true)
+  updatedAt    DateTime @map("updated_at") @db.Timestamptz(6)
+
+  inventory Inventory[]
+
+  @@index([hotelId])
+  @@map("room_types_replica")
+}
+
+model Inventory {
+  roomTypeId    String   @map("room_type_id") @db.Uuid
+  date          DateTime @db.Date
+  totalUnits    Int      @map("total_units")
+  reservedUnits Int      @default(0) @map("reserved_units")
+
+  roomType RoomTypeReplica @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@id([roomTypeId, date])
+  @@map("inventory")
+}
+
+model Booking {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  hotelId         String        @map("hotel_id") @db.Uuid
+  roomTypeId      String        @map("room_type_id") @db.Uuid
+  checkIn         DateTime      @map("check_in") @db.Date
+  checkOut        DateTime      @map("check_out") @db.Date
+  units           Int
+  status          BookingStatus
+  totalCents      Int           @map("total_cents")
+  currency        String        @db.Char(3)
+  idempotencyKey  String        @unique @map("idempotency_key")
+  expiresAt       DateTime?     @map("expires_at") @db.Timestamptz(6)
+  refundableUntil DateTime?     @map("refundable_until") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@map("bookings")
+}
+
+model Outbox {
+  id          BigInt    @id @default(autoincrement())
+  aggregateId String    @map("aggregate_id") @db.Uuid
+  eventType   String    @map("event_type")
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@index([publishedAt, id])
+  @@map("outbox")
+}
+
+model ProcessedEvent {
+  id          String   @id
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
+
+  @@map("processed_events")
+}

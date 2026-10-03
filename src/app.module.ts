@@ -1,10 +1,18 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { ScheduleModule } from '@nestjs/schedule';
+
+import { BookingsModule } from './bookings/bookings.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { RoomTypesReplicaModule } from './replica/room-types-replica.module';
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    ScheduleModule.forRoot(),
+    PrismaModule,
+    InventoryModule,
+    BookingsModule,
+    RoomTypesReplicaModule,
+  ],
 })
 export class AppModule {}
