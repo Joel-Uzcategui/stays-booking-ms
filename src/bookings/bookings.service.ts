@@ -8,6 +8,7 @@ import { Booking, Prisma } from '../generated/prisma/client';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBookingDto } from './dto';
+import type { BookingGroup } from './dto';
 
 const MAX_NIGHTS = 30;
 const MAX_ATTEMPTS = 4;
@@ -197,20 +198,44 @@ export class BookingsService {
     return this.present(booking);
   }
 
-  async findMine(userId: string, page = 1, limit = 20) {
+  async findMine(
+    userId: string,
+    page = 1,
+    limit = 20,
+    group: BookingGroup = 'active',
+  ) {
+    const where = { userId, ...this.groupFilter(group) };
+
     const [data, total] = await Promise.all([
       this.prisma.booking.findMany({
-        where: { userId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.booking.count({ where: { userId } }),
+      this.prisma.booking.count({ where }),
     ]);
 
     return {
       data: data.map((booking) => this.present(booking)),
       meta: { page, limit, total, lastPage: Math.ceil(total / limit) || 1 },
+    };
+  }
+
+  private groupFilter(group: BookingGroup): Prisma.BookingWhereInput {
+    const today = toUtcDate(toIsoDay(new Date()));
+
+    if (group === 'past') {
+      return { status: 'confirmed', checkOut: { lt: today } };
+    }
+
+    if (group === 'cancelled') {
+      return { status: { in: ['cancelled', 'refunded'] } };
+    }
+
+    return {
+      status: { in: ['held', 'confirmed'] },
+      checkOut: { gte: today },
     };
   }
 
@@ -231,6 +256,20 @@ export class BookingsService {
       });
     }
 
+    const today = toUtcDate(toIsoDay(new Date()));
+
+    if (booking.status === 'confirmed' && booking.checkIn <= today) {
+      throw new RpcException({
+        status: HttpStatus.CONFLICT,
+        message: 'A stay that has already started cannot be cancelled',
+      });
+    }
+
+    const refundable =
+      booking.status === 'confirmed' &&
+      !!booking.refundableUntil &&
+      booking.refundableUntil > new Date();
+
     const cancelled = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.booking.updateMany({
         where: { id, status: booking.status },
@@ -247,7 +286,16 @@ export class BookingsService {
         bookingId: booking.id,
         userId: booking.userId,
         previousStatus: booking.status,
+        refundable,
       });
+
+      if (refundable) {
+        await this.outbox.enqueue(tx, booking.id, 'payment.refund.requested', {
+          bookingId: booking.id,
+          userId: booking.userId,
+          reason: 'cancelled by the guest',
+        });
+      }
 
       return tx.booking.findUnique({ where: { id } });
     });
@@ -260,6 +308,74 @@ export class BookingsService {
     }
 
     return this.present(cancelled);
+  }
+
+  async reacquire(tx: Prisma.TransactionClient, booking: Booking) {
+    const taken: string[] = [];
+
+    for (const night of eachNight(booking.checkIn, booking.checkOut)) {
+      const updated = await tx.$executeRaw`
+        UPDATE inventory
+        SET    reserved_units = reserved_units + ${booking.units}
+        WHERE  room_type_id = ${booking.roomTypeId}::uuid
+          AND  date = ${night}::date
+          AND  reserved_units + ${booking.units} <= total_units
+      `;
+
+      if (updated === 0) {
+        for (const done of taken) {
+          await tx.$executeRaw`
+            UPDATE inventory
+            SET    reserved_units = reserved_units - ${booking.units}
+            WHERE  room_type_id = ${booking.roomTypeId}::uuid
+              AND  date = ${done}::date
+              AND  reserved_units >= ${booking.units}
+          `;
+        }
+
+        return false;
+      }
+
+      taken.push(night);
+    }
+
+    return true;
+  }
+
+  async extendHold(id: string, userId: string) {
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+
+    if (!booking || booking.userId !== userId) {
+      throw new RpcException({
+        status: HttpStatus.NOT_FOUND,
+        message: `Booking ${id} not found`,
+      });
+    }
+
+    const until = new Date(Date.now() + envs.paymentWindowMinutes * 60_000);
+    const expiresAt = booking.expiresAt;
+
+    if (
+      booking.status !== 'held' ||
+      !expiresAt ||
+      expiresAt <= new Date() ||
+      expiresAt >= until
+    ) {
+      return this.present(booking);
+    }
+
+    const extended = await this.prisma.booking.updateMany({
+      where: { id, status: 'held' },
+      data: { expiresAt: until },
+    });
+
+    if (extended.count === 0) {
+      return this.present(booking);
+    }
+
+    this.logger.log(`Extended the hold on ${id} while the payment runs`);
+
+    return this.present({ ...booking, expiresAt: until });
   }
 
   async release(tx: Prisma.TransactionClient, booking: Booking) {
@@ -298,6 +414,7 @@ export class BookingsService {
       totalCents: booking.totalCents,
       currency: booking.currency,
       expiresAt: booking.expiresAt,
+      refundableUntil: booking.refundableUntil,
     };
   }
 

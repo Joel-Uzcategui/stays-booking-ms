@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+
+export type BookingGroup = 'active' | 'past' | 'cancelled';
 
 export class ListBookingsDto {
   @IsUUID()
@@ -17,4 +19,8 @@ export class ListBookingsDto {
   @Min(1)
   @Max(50)
   limit?: number;
+
+  @IsOptional()
+  @IsIn(['active', 'past', 'cancelled'])
+  group?: BookingGroup;
 }

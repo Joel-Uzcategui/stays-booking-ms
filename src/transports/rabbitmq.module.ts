@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 
-import { CATALOG_SERVICE, EVENTS_PUBLISHER, envs } from '../config';
+import {
+  CATALOG_SERVICE,
+  EVENTS_PUBLISHER,
+  PAYMENT_SERVICE,
+  envs,
+} from '../config';
 
 const clients = ClientsModule.register([
   {
@@ -10,6 +15,15 @@ const clients = ClientsModule.register([
     options: {
       urls: [envs.rabbitmqUrl],
       queue: envs.catalogQueue,
+      queueOptions: { durable: true },
+    },
+  },
+  {
+    name: PAYMENT_SERVICE,
+    transport: Transport.RMQ,
+    options: {
+      urls: [envs.rabbitmqUrl],
+      queue: envs.paymentQueue,
       queueOptions: { durable: true },
     },
   },

@@ -3,11 +3,13 @@ import { Cron } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 
-import { EVENTS_PUBLISHER } from '../config';
+import { EVENTS_PUBLISHER, PAYMENT_SERVICE } from '../config';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const BATCH = 100;
+
+const PAYMENT_EVENTS = ['payment.refund.requested'];
 
 @Injectable()
 export class OutboxService {
@@ -16,6 +18,7 @@ export class OutboxService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(EVENTS_PUBLISHER) private readonly publisher: ClientProxy,
+    @Inject(PAYMENT_SERVICE) private readonly payments: ClientProxy,
   ) {}
 
   enqueue(
@@ -43,7 +46,11 @@ export class OutboxService {
 
     for (const row of pending) {
       try {
-        await firstValueFrom(this.publisher.emit(row.eventType, row.payload));
+        const client = PAYMENT_EVENTS.includes(row.eventType)
+          ? this.payments
+          : this.publisher;
+
+        await firstValueFrom(client.emit(row.eventType, row.payload));
       } catch (error) {
         this.logger.warn(
           `Could not publish ${row.eventType} for ${row.aggregateId}: ${String(error)}`,
