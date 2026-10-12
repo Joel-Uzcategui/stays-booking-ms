@@ -8,6 +8,7 @@ interface EnvVars {
   CATALOG_QUEUE: string;
   BOOKING_EVENTS_QUEUE: string;
   PAYMENT_QUEUE: string;
+  NOTIFICATION_QUEUE: string;
   HOLD_TTL_MINUTES: number;
   PAYMENT_WINDOW_MINUTES: number;
   REFUND_WINDOW_DAYS: number;
@@ -22,6 +23,7 @@ const envsSchema = joi
     CATALOG_QUEUE: joi.string().required(),
     BOOKING_EVENTS_QUEUE: joi.string().default('booking_events'),
     PAYMENT_QUEUE: joi.string().default('payment_queue'),
+    NOTIFICATION_QUEUE: joi.string().default('notification_queue'),
     HOLD_TTL_MINUTES: joi.number().integer().min(1).default(15),
     PAYMENT_WINDOW_MINUTES: joi.number().integer().min(1).default(15),
     REFUND_WINDOW_DAYS: joi.number().integer().min(0).default(2),
@@ -47,6 +49,7 @@ export const envs = {
   catalogQueue: envVars.CATALOG_QUEUE,
   bookingEventsQueue: envVars.BOOKING_EVENTS_QUEUE,
   paymentQueue: envVars.PAYMENT_QUEUE,
+  notificationQueue: envVars.NOTIFICATION_QUEUE,
   holdTtlMinutes: envVars.HOLD_TTL_MINUTES,
   paymentWindowMinutes: envVars.PAYMENT_WINDOW_MINUTES,
   refundWindowDays: envVars.REFUND_WINDOW_DAYS,

@@ -76,6 +76,11 @@ export class ConfirmationsService {
           bookingId: booking.id,
           userId: booking.userId,
           paymentId: event.paymentId,
+          checkIn: booking.checkIn.toISOString().slice(0, 10),
+          checkOut: booking.checkOut.toISOString().slice(0, 10),
+          units: booking.units,
+          totalCents: booking.totalCents,
+          currency: booking.currency,
         });
 
         this.logger.log(
